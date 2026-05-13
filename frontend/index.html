@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PasteVault — Create</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="stars" id="stars"></div>
+
+<div class="page">
+  <header>
+    <div class="logo">Paste<span>Vault</span></div>
+    <div class="tagline">Encrypted · Ephemeral · Antigravity</div>
+  </header>
+
+  <nav>
+    <a href="index.html" class="active">New Paste</a>
+    <div class="dot"></div>
+    <a href="view.html">View Paste</a>
+    <div class="dot"></div>
+    <a href="/api/docs" target="_blank">API Docs</a>
+  </nav>
+
+  <div class="card">
+    <!-- Content -->
+    <div class="field">
+      <label>Content</label>
+      <textarea id="content" placeholder="Paste your code, secret, or text here…" autofocus></textarea>
+    </div>
+
+    <!-- Language + TTL -->
+    <div class="row">
+      <div class="field">
+        <label>Language</label>
+        <select id="language">
+          <option value="plaintext">Plaintext</option>
+          <option value="python">Python</option>
+          <option value="javascript">JavaScript</option>
+          <option value="typescript">TypeScript</option>
+          <option value="java">Java</option>
+          <option value="go">Go</option>
+          <option value="rust">Rust</option>
+          <option value="bash">Bash</option>
+          <option value="sql">SQL</option>
+          <option value="yaml">YAML</option>
+          <option value="json">JSON</option>
+          <option value="dockerfile">Dockerfile</option>
+          <option value="markdown">Markdown</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Expires</label>
+        <select id="ttl">
+          <option value="">Never</option>
+          <option value="3600">1 hour</option>
+          <option value="21600">6 hours</option>
+          <option value="86400">24 hours</option>
+          <option value="604800">7 days</option>
+          <option value="2592000">30 days</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Password -->
+    <div class="field">
+      <label>Password <span style="color:var(--text-muted);text-transform:none;letter-spacing:0">(optional — adds encryption layer)</span></label>
+      <input type="password" id="password" placeholder="Leave blank for no password" />
+    </div>
+
+    <!-- Burn after read -->
+    <div class="field">
+      <label class="toggle-row" for="burn">
+        <div>
+          <div class="toggle-label">Burn After Read</div>
+          <div class="toggle-desc">Paste is destroyed after first view</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="burn" />
+          <span class="toggle-track"></span>
+        </label>
+      </label>
+    </div>
+
+    <!-- Submit -->
+    <button class="btn btn-primary" id="submit-btn" onclick="submitPaste()">
+      <span id="btn-text">Encrypt &amp; Vault It</span>
+    </button>
+
+    <!-- Result -->
+    <div class="result" id="result">
+      <div class="section-label">Your Paste URL</div>
+      <div class="result-url" id="paste-url">
+        <span id="url-text"></span>
+        <button class="btn btn-ghost" onclick="copyUrl()" style="white-space:nowrap;padding:6px 12px">Copy</button>
+      </div>
+
+      <div class="token-box">
+        <strong>⚠ Delete Token — save this, it won't be shown again</strong>
+        <span id="delete-token"></span>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="copyUrl()">Copy URL</button>
+        <button class="btn btn-ghost" onclick="goToView()">View Paste →</button>
+        <button class="btn btn-ghost" onclick="resetForm()">New Paste</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <p style="text-align:center;color:var(--text-muted);font-size:11px;margin-top:32px;letter-spacing:1px">
+    Zero logs · E2E encrypted · Self-destructing
+  </p>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

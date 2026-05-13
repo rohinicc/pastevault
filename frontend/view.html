@@ -1,0 +1,119 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PasteVault — View</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="stars" id="stars"></div>
+
+<div class="page">
+  <header>
+    <div class="logo">Paste<span>Vault</span></div>
+    <div class="tagline">Encrypted · Ephemeral · Antigravity</div>
+  </header>
+
+  <nav>
+    <a href="index.html">New Paste</a>
+    <div class="dot"></div>
+    <a href="view.html" class="active">View Paste</a>
+    <div class="dot"></div>
+    <a href="/api/docs" target="_blank">API Docs</a>
+  </nav>
+
+  <!-- Slug input (when no ?slug= in URL) -->
+  <div class="card" id="slug-lookup" style="display:none">
+    <div class="field">
+      <label>Paste Slug or URL</label>
+      <input type="text" id="slug-input" placeholder="Enter slug or paste the full URL…" />
+    </div>
+    <button class="btn btn-primary" onclick="lookupFromInput()">Retrieve Paste</button>
+  </div>
+
+  <!-- Password gate -->
+  <div class="card" id="pw-gate" style="display:none">
+    <div class="password-gate">
+      <div class="lock-icon">🔐</div>
+      <p>This paste is password protected.<br>Enter the password to decrypt.</p>
+      <div class="field">
+        <input type="password" id="pw-input" placeholder="Password…"
+               onkeydown="if(event.key==='Enter')fetchWithPassword()" />
+      </div>
+      <button class="btn btn-primary" onclick="fetchWithPassword()">Unlock</button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="card" id="loading-card" style="display:none;text-align:center;padding:60px">
+    <div class="spinner"></div>
+    <p style="color:var(--text-muted);margin-top:16px;font-size:12px">Decrypting…</p>
+  </div>
+
+  <!-- Paste content -->
+  <div class="card" id="paste-card" style="display:none">
+    <div class="badges" id="badges"></div>
+
+    <div id="burn-warning" class="burn-warning" style="display:none">
+      <span>🔥</span>
+      <span>This paste is set to <strong>burn after reading</strong>. This is the only time it will be shown. It has already been deleted.</span>
+    </div>
+
+    <div class="code-wrap">
+      <div class="code-header">
+        <span id="lang-label">plaintext</span>
+        <button class="btn btn-ghost" onclick="copyContent()" style="padding:4px 10px;font-size:11px">Copy</button>
+      </div>
+      <pre class="code-content" id="paste-content"></pre>
+    </div>
+
+    <hr class="divider" />
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <a href="index.html" class="btn btn-ghost">New Paste</a>
+      <button class="btn btn-ghost" onclick="copyContent()">Copy Content</button>
+      <div style="margin-left:auto">
+        <button class="btn btn-danger" onclick="showDeleteDialog()">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error / gone state -->
+  <div class="card" id="error-card" style="display:none">
+    <div class="state-box">
+      <div class="state-icon" id="error-icon">💨</div>
+      <h2 id="error-title">Gone</h2>
+      <p id="error-msg" style="font-size:12px;margin-top:8px;color:var(--text-muted)"></p>
+      <div style="margin-top:24px">
+        <a href="index.html" class="btn btn-ghost">Create New Paste</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete dialog overlay -->
+  <div id="delete-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:100;backdrop-filter:blur(4px)">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(400px,90vw)">
+      <div class="card" style="animation:none">
+        <h3 style="font-family:var(--display);color:var(--red);margin-bottom:16px">Delete Paste</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:20px">Enter your delete token to permanently destroy this paste.</p>
+        <div class="field">
+          <input type="text" id="delete-token-input" placeholder="Delete token…"
+                 onkeydown="if(event.key==='Enter')confirmDelete()" />
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-danger" onclick="confirmDelete()" style="flex:1;justify-content:center">Destroy</button>
+          <button class="btn btn-ghost" onclick="closeDeleteDialog()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

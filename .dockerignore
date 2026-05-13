@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+.env
+.git
+.gitignore
+*.md
+plan.md
+architecture.md
+.idea
+.vscode
+*.log
