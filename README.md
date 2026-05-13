@@ -120,21 +120,21 @@ Requires the delete token returned at creation. Returns `204` on success.
 
 ```
                          ┌─────────────────────────────────┐
-                         │         CLIENT BROWSER           │
-                         │   index.html  |  view.html       │
-                         │      (Vanilla HTML/CSS/JS)       │
+                         │         CLIENT BROWSER          │
+                         │   index.html  |  view.html      │
+                         │      (Vanilla HTML/CSS/JS)      │
                          └──────────────┬──────────────────┘
                                         │ HTTP REST
                          ┌──────────────▼──────────────────┐
-                         │         FASTAPI (uvicorn)        │
-                         │                                  │
+                         │         FASTAPI (uvicorn)       │
+                         │                                 │
                          │  ┌──────────┐  ┌─────────────┐  │
                          │  │  /pastes │  │   /health   │  │
                          │  │  router  │  │   /docs     │  │
                          │  └────┬─────┘  └─────────────┘  │
-                         │       │                          │
+                         │       │                         │
                          │  ┌────▼──────────────────────┐  │
-                         │  │      paste_service         │  │
+                         │  │      paste_service        │  │
                          │  │  ┌──────────┐ ┌────────┐  │  │
                          │  │  │  crypto  │ │  slug  │  │  │
                          │  │  │ _service │ │_service│  │  │
@@ -143,16 +143,16 @@ Requires the delete token returned at creation. Returns `204` on success.
                          └───────┼───────────────┼─────────┘
                                  │               │
                 ┌────────────────▼──┐     ┌──────▼───────────────┐
-                │   POSTGRESQL 16   │     │      REDIS 7          │
-                │   (long-lived)    │     │   (short-lived)       │
-                │                   │     │                        │
-                │  ┌─────────────┐  │     │  paste:short:{slug}   │
-                │  │slug (PK)    │  │     │  burn:{slug}          │
-                │  │encrypted_   │  │     │  views:{slug}         │
-                │  │  content    │  │     │  rate:{ip}            │
-                │  │language     │  │     │                        │
-                │  │burn_after_  │  │     │  TTL → Redis SETEX     │
-                │  │  read       │  │     └────────────────────────┘
+                │   POSTGRESQL 16   │     │      REDIS 7         │
+                │   (long-lived)    │     │   (short-lived)      │
+                │                   │     │                      │
+                │  ┌─────────────┐  │     │  paste:short:{slug}  │
+                │  │slug (PK)    │  │     │  burn:{slug}         │
+                │  │encrypted_   │  │     │  views:{slug}        │
+                │  │  content    │  │     │  rate:{ip}           │
+                │  │language     │  │     │                      │
+                │  │burn_after_  │  │     │  TTL → Redis SETEX   │
+                │  │  read       │  │     └──────────────────────┘
                 │  │password_salt│  │
                 │  │delete_token │  │
                 │  │  _hash      │  │
@@ -180,12 +180,12 @@ Requires the delete token returned at creation. Returns `204` on success.
             password provided?
                       │
           ┌───────────┼───────────┐
-         YES           │          NO
-          │            │           │
-          ▼            │           ▼
+         YES          │          NO
+          │           │           │
+          ▼           │           ▼
 ┌─────────────────────▼┐   ┌──────▼──────────────┐
-│  Layer 2: Fernet(    │   │  Store ciphertext_L1 │
-│   PBKDF2(password +  │   │  directly            │
+│  Layer 2: Fernet(    │   │  Store ciphertext_L1│
+│   PBKDF2(password +  │   │  directly           │
 │   random 32-byte     │   └─────────────────────┘
 │   salt, 390K iters)) │
 │                      │
@@ -224,9 +224,9 @@ POST /pastes/ received
 Browser ──POST /pastes/──► FastAPI
                               │
                     ┌─────────▼──────────┐
-                    │  Rate Limiter Check │
-                    │  (Redis INCR ip,    │
-                    │   100 req/min)      │
+                    │  Rate Limiter Check│
+                    │  (Redis INCR ip,   │
+                    │   100 req/min)     │
                     └─────────┬──────────┘
                               │
                     ┌─────────▼──────────┐
@@ -258,9 +258,9 @@ Browser ──POST /pastes/──► FastAPI
                     └─────────┬──────────┘
                          YES │              NO
                     ┌─────────▼──┐   ┌──────▼──────────┐
-                    │  Redis     │   │  PostgreSQL      │
-                    │  SETEX     │   │  INSERT paste    │
-                    │  paste:    │   │  row             │
+                    │  Redis     │   │  PostgreSQL     │
+                    │  SETEX     │   │  INSERT paste   │
+                    │  paste:    │   │  row            │
                     │  short:    │   └──────┬──────────┘
                     │  {slug}    │          │
                     └──────┬─────┘   ┌──────▼──────────┐
@@ -285,8 +285,8 @@ Browser ──POST /pastes/──► FastAPI
 Browser ──GET /pastes/{slug}──► FastAPI
                                   │
                     ┌─────────────▼─────────────┐
-                    │  Check burn:{slug} in Redis│
-                    │  + paste:short:{slug}      │
+                    │ Check burn:{slug} in Redis│
+                    │  + paste:short:{slug}     │
                     └─────────────┬─────────────┘
                                   │
               ┌───────────────────┼───────────────────┐
@@ -300,7 +300,7 @@ Browser ──GET /pastes/{slug}──► FastAPI
     │  → 410 if burned │  │ GET content  │   │                │
     └──────────────────┘  │ INCR views   │   │  Not found→404 │
                           │ DEL if burn  │   │  is_burned→410 │
-                          └──────┬───────┘   │  expired →410 │
+                          └──────┬───────┘   │  expired →410  │
                                  │           └───────┬────────┘
                                  │                   │
                           ┌──────▼───────────────────▼──────┐
