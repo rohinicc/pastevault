@@ -6,7 +6,117 @@ A zero-trust, end-to-end encrypted paste-sharing platform. Create a paste, share
 
 ---
 
-## System Architecture
+## Features
+
+- **End-to-end encryption** — Fernet AES-128-CBC + HMAC-SHA256 on the server, with optional PBKDF2-SHA256 password layer (390,000 iterations, random 32-byte salt per paste)
+- **Burn after reading** — paste is destroyed immediately after first view (atomic Redis Lua script prevents race conditions)
+- **Time-based expiry** — pastes auto-delete after 1 hour up to 30 days (or never)
+- **Password protection** — second encryption layer derived from your password + unique random salt
+- **Delete tokens** — each paste gets a unique UUID, SHA-256 hashed before storage
+- **Dual storage** — short-TTL pastes stay in Redis only (no DB write); long-lived pastes go to PostgreSQL
+- **Rate limiting** — 100 requests/minute per IP via Redis counter
+- **Async architecture** — FastAPI + asyncpg + aioredis + SQLAlchemy async
+- **No accounts, no logs** — anonymous usage, zero PII collected
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Docker & Docker Compose
+
+### Run
+
+```bash
+git clone https://github.com/yourusername/pastevault.git
+cd pastevault
+
+# Copy environment file
+cp .env.example .env
+
+# Generate a Fernet encryption key
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Edit .env — paste the generated key as ENCRYPTION_KEY
+
+# Build and start all services
+docker compose up --build -d
+```
+
+### Access
+
+| Service | URL |
+|---------|-----|
+| Create paste | http://localhost:8000 |
+| View paste | http://localhost:8000/view.html |
+| API docs (Swagger) | http://localhost:8000/api/docs |
+| API docs (ReDoc) | http://localhost:8000/api/redoc |
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| API | FastAPI (Python 3.12) |
+| Database | PostgreSQL 16 (via asyncpg) |
+| Cache | Redis 7 (via redis-py async) |
+| ORM | SQLAlchemy 2.0 (async) |
+| Migrations | Alembic |
+| Encryption | Fernet + PBKDF2 (cryptography) |
+| Frontend | Vanilla HTML / CSS / JS |
+| Containerization | Docker + Docker Compose |
+
+---
+
+## API Endpoints
+
+### `POST /pastes/` — Create a paste
+
+```json
+{
+  "content": "your text here",
+  "language": "python",
+  "burn_after_read": false,
+  "ttl_seconds": 3600,
+  "password": null
+}
+```
+
+Response `201`:
+```json
+{
+  "slug": "AbC123Xy",
+  "url": "http://localhost:8000/view.html?slug=AbC123Xy",
+  "delete_token": "550e8400-e29b-41d4-a716-446655440000",
+  "expires_at": "2026-05-13T10:00:00+00:00",
+  "burn_after_read": false,
+  "language": "python"
+}
+```
+
+### `GET /pastes/{slug}` — Read a paste (no password)
+
+Returns `200` with content, language, view count, expiry info.
+
+### `POST /pastes/{slug}/read` — Read a password-protected paste
+
+```json
+{ "password": "your-password" }
+```
+
+### `GET /pastes/{slug}/meta` — Get paste metadata (no decrypted content)
+
+### `DELETE /pastes/{slug}?token=...` — Delete a paste
+
+Requires the delete token returned at creation. Returns `204` on success.
+
+---
+
+## Architecture
+
+### System Overview
 
 ```
                          ┌─────────────────────────────────┐
@@ -54,11 +164,61 @@ A zero-trust, end-to-end encrypted paste-sharing platform. Create a paste, share
                 └───────────────────┘
 ```
 
----
+### Encryption Flow
 
-## Request Flows
+```
+ User Input (plaintext)
+        │
+        ▼
+┌─────────────────────────────────────────────┐
+│  Layer 1: Fernet(SERVER_KEY)                │
+│  Algorithm: AES-128-CBC + HMAC-SHA256       │
+│  Always applied — server-side key           │
+│  encrypt(plaintext) → ciphertext_L1         │
+└─────────────────────┬───────────────────────┘
+                      │
+            password provided?
+                      │
+          ┌───────────┼───────────┐
+         YES           │          NO
+          │            │           │
+          ▼            │           ▼
+┌─────────────────────▼┐   ┌──────▼──────────────┐
+│  Layer 2: Fernet(    │   │  Store ciphertext_L1 │
+│   PBKDF2(password +  │   │  directly            │
+│   random 32-byte     │   └─────────────────────┘
+│   salt, 390K iters)) │
+│                      │
+│  encrypt(ciphertext_ │
+│   L1) → final        │
+│  ciphertext          │
+└──────────────────────┘
 
-### Create Paste
+ Decryption (reverse order):
+  1. If password set: Fernet(PBKDF2(password + salt)).decrypt()
+  2. Fernet(SERVER_KEY).decrypt() → plaintext
+```
+
+### Storage Decision Tree
+
+```
+POST /pastes/ received
+        │
+        ├── TTL ≤ 24 hours (86,400s)?
+        │        │
+        │       YES ──► Redis SETEX only (no DB write)
+        │        │      Store: paste:short:{slug}
+        │        │      Burn flag: burn:{slug} (same TTL)
+        │        │
+        │        NO
+        │        │
+        │        ├── TTL > 24h ──► PostgreSQL INSERT
+        │        │                 Burn flag: Redis SET burn:{slug}
+        │        │
+        │        └── No TTL (permanent) ──► PostgreSQL INSERT only
+```
+
+### Request Flow — Create Paste
 
 ```
 Browser ──POST /pastes/──► FastAPI
@@ -119,7 +279,7 @@ Browser ──POST /pastes/──► FastAPI
                                       └──────────────────┘
 ```
 
-### Read Paste
+### Request Flow — Read Paste
 
 ```
 Browser ──GET /pastes/{slug}──► FastAPI
@@ -161,161 +321,18 @@ Browser ──GET /pastes/{slug}──► FastAPI
 
 ---
 
-## Storage Decision Tree
+## Security
 
-```
-POST /pastes/ received
-        │
-        ├── TTL ≤ 24 hours (86,400s)?
-        │        │
-        │       YES ──► Redis SETEX only (no DB write)
-        │        │      Store: paste:short:{slug}
-        │        │      Burn flag: burn:{slug} (same TTL)
-        │        │
-        │        NO
-        │        │
-        │        ├── TTL > 24h ──► PostgreSQL INSERT
-        │        │                 Burn flag: Redis SET burn:{slug}
-        │        │
-        │        └── No TTL (permanent) ──► PostgreSQL INSERT only
-```
-
----
-
-## Encryption Architecture
-
-```
- User Input (plaintext)
-        │
-        ▼
-┌─────────────────────────────────────────────┐
-│  Layer 1: Fernet(SERVER_KEY)                │
-│  Algorithm: AES-128-CBC + HMAC-SHA256       │
-│  Always applied — server-side key           │
-│  encrypt(plaintext) → ciphertext_L1         │
-└─────────────────────┬───────────────────────┘
-                      │
-            password provided?
-                      │
-          ┌───────────┼───────────┐
-         YES           │          NO
-          │            │           │
-          ▼            │           ▼
-┌─────────────────────▼┐   ┌──────▼──────────────┐
-│  Layer 2: Fernet(    │   │  Store ciphertext_L1 │
-│   PBKDF2(password +  │   │  directly            │
-│   random 32-byte     │   └─────────────────────┘
-│   salt, 390K iters)) │
-│                      │
-│  encrypt(ciphertext_ │
-│   L1) → final        │
-│  ciphertext          │
-└──────────────────────┘
-
- Decryption (reverse order):
-  1. If password set: Fernet(PBKDF2(password + salt)).decrypt()
-  2. Fernet(SERVER_KEY).decrypt() → plaintext
-```
-
----
-
-## Features
-
-- **End-to-end encryption** — Fernet AES-128-CBC + HMAC-SHA256 on the server, with optional PBKDF2-SHA256 password layer (390,000 iterations, random 32-byte salt per paste)
-- **Burn after reading** — paste is destroyed immediately after first view (atomic Redis Lua script prevents race conditions)
-- **Time-based expiry** — pastes auto-delete after 1 hour up to 30 days (or never)
-- **Password protection** — second encryption layer derived from your password + unique random salt
-- **Delete tokens** — each paste gets a unique UUID, SHA-256 hashed before storage
-- **Dual storage** — short-TTL pastes stay in Redis only (no DB write); long-lived pastes go to PostgreSQL
-- **Rate limiting** — 100 requests/minute per IP via Redis counter
-- **Async architecture** — FastAPI + asyncpg + aioredis + SQLAlchemy async
-- **No accounts, no logs** — anonymous usage, zero PII collected
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| API | FastAPI (Python 3.12) |
-| Database | PostgreSQL 16 (via asyncpg) |
-| Cache | Redis 7 (via redis-py async) |
-| ORM | SQLAlchemy 2.0 (async) |
-| Migrations | Alembic |
-| Encryption | Fernet + PBKDF2 (cryptography) |
-| Frontend | Vanilla HTML / CSS / JS |
-| Containerization | Docker + Docker Compose |
-
----
-
-## Project Structure
-
-```
-pastevault/
-├── app/
-│   ├── main.py              # FastAPI app, lifespan, rate limiter, mount
-│   ├── config.py            # Pydantic Settings from .env
-│   ├── database.py          # Async SQLAlchemy engine + session
-│   ├── redis_client.py      # Redis async client + atomic Lua scripts
-│   ├── models/
-│   │   └── paste.py         # SQLAlchemy ORM (Paste model)
-│   ├── schemas/
-│   │   └── paste.py         # Pydantic request/response schemas
-│   ├── routers/
-│   │   └── paste.py         # FastAPI route definitions
-│   ├── services/
-│   │   ├── crypto_service.py   # Fernet + PBKDF2 encryption
-│   │   ├── paste_service.py    # Core business logic
-│   │   └── slug_service.py     # Unique slug generation
-│   └── tasks/
-│       └── cleanup.py       # Background expired-paste purge
-├── frontend/
-│   ├── index.html           # Create paste UI
-│   ├── view.html            # View paste UI
-│   ├── app.js               # Frontend logic
-│   └── style.css            # Antigravity design system
-├── alembic/                 # Database migrations
-├── Dockerfile
-├── docker-compose.yml
-├── .env.example
-├── requirements.txt
-└── README.md
-```
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Docker & Docker Compose
-
-### Run
-
-```bash
-git clone https://github.com/yourusername/pastevault.git
-cd pastevault
-
-# Copy environment file
-cp .env.example .env
-
-# Generate a Fernet encryption key
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# Edit .env — paste the generated key as ENCRYPTION_KEY
-
-# Build and start all services
-docker compose up --build -d
-```
-
-### Access
-
-| Service | URL |
-|---------|-----|
-| Create paste | http://localhost:8000 |
-| View paste | http://localhost:8000/view.html |
-| API docs (Swagger) | http://localhost:8000/api/docs |
-| API docs (ReDoc) | http://localhost:8000/api/redoc |
+| Property | Implementation |
+|----------|---------------|
+| Encryption at rest | Fernet AES-128-CBC + HMAC-SHA256 |
+| Password protection | PBKDF2-SHA256, 390,000 iterations, random 32-byte salt per paste |
+| Delete tokens | SHA-256 hashed before storage (raw token shown once at creation) |
+| Burn after read | Atomic Redis Lua script — no race condition between concurrent readers |
+| Rate limiting | Per-IP Redis counter with expiry |
+| Slug collision | 62^8 ≈ 218 trillion combinations, checked against Redis + DB |
+| Container security | Runs as non-root `pastevault` user |
+| No PII collected | Anonymous pastes — no accounts, no cookies, no logs of content |
 
 ---
 
@@ -330,72 +347,49 @@ docker compose up --build -d
 | `LOG_LEVEL` | `INFO` | Python logging level |
 | `DB_POOL_SIZE` | `10` | SQLAlchemy async connection pool size |
 | `DB_MAX_OVERFLOW` | `20` | Max overflow connections for the pool |
-| `RATE_LIMIT_PER_MINUTE` | `100` | Max requests per IP per minute (sliding window via Redis) |
+| `RATE_LIMIT_PER_MINUTE` | `100` | Max requests per IP per minute |
 | `CLEANUP_INTERVAL_SECONDS` | `3600` | Interval for background expired-paste purge task |
 | `POSTGRES_PASSWORD` | `password` | PostgreSQL password |
 
 ---
 
-## API Endpoints
+## Project Structure
 
-### `POST /pastes/` — Create a paste
-
-Request body:
-```json
-{
-  "content": "your text here",
-  "language": "python",
-  "burn_after_read": false,
-  "ttl_seconds": 3600,
-  "password": null
-}
 ```
-
-Response `201`:
-```json
-{
-  "slug": "AbC123Xy",
-  "url": "http://localhost:8000/view.html?slug=AbC123Xy",
-  "delete_token": "550e8400-e29b-41d4-a716-446655440000",
-  "expires_at": "2026-05-13T10:00:00+00:00",
-  "burn_after_read": false,
-  "language": "python"
-}
+pastevault/
+├── app/
+│   ├── main.py              # FastAPI app, lifespan, rate limiter
+│   ├── config.py            # Pydantic Settings from .env
+│   ├── database.py          # Async SQLAlchemy engine + session
+│   ├── redis_client.py      # Redis client + atomic Lua scripts
+│   ├── models/
+│   │   └── paste.py         # SQLAlchemy ORM (Paste model)
+│   ├── schemas/
+│   │   └── paste.py         # Pydantic request/response schemas
+│   ├── routers/
+│   │   └── paste.py         # FastAPI route definitions
+│   ├── services/
+│   │   ├── crypto_service.py   # Fernet + PBKDF2 encryption
+│   │   ├── paste_service.py    # Core business logic
+│   │   └── slug_service.py     # Slug generation
+│   └── tasks/
+│       └── cleanup.py       # Background expired-paste purge
+├── frontend/
+│   ├── index.html           # Create paste UI
+│   ├── view.html            # View paste UI
+│   ├── app.js               # Frontend logic
+│   └── style.css            # Design system
+├── alembic/
+│   ├── versions/
+│   │   └── 0001_initial_pastes_table.py
+│   └── env.py
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+├── requirements.txt
+└── README.md
 ```
-
-### `GET /pastes/{slug}` — Read a paste (no password)
-
-Returns `200` with content, language, view count, expiry info.
-
-### `POST /pastes/{slug}/read` — Read a password-protected paste
-
-Request body:
-```json
-{ "password": "your-password" }
-```
-
-### `GET /pastes/{slug}/meta` — Get paste metadata
-
-Returns slug, language, password protection status, view count, expiry — **without** the decrypted content.
-
-### `DELETE /pastes/{slug}?token=...` — Delete a paste
-
-Requires the delete token returned at creation. Returns `204` on success.
-
----
-
-## Security
-
-| Property | Implementation |
-|----------|---------------|
-| Encryption at rest | Fernet AES-128-CBC + HMAC-SHA256 |
-| Password protection | PBKDF2-SHA256, 390,000 iterations, random 32-byte salt per paste |
-| Delete tokens | SHA-256 hashed before storage (raw token shown once at creation) |
-| Burn after read | Atomic Redis Lua script — no race condition between concurrent readers |
-| Rate limiting | Per-IP Redis counter with expiry |
-| Slug collision | 62^8 ≈ 218 trillion combinations, checked against Redis + DB |
-| Container security | Runs as non-root `pastevault` user |
-| No PII collected | Anonymous pastes — no accounts, no cookies, no logs of content |
 
 ---
 
